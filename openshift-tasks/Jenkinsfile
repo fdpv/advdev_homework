@@ -123,7 +123,7 @@ podTemplate(
 					openshift.selector("dc", "tasks").rollout().latest();
 
 					// Wait for application to be deployed
-					// (to to so, it gets the ReplicaController associated to same version that the DeploymentConfig
+					// (to to so, it gets the ReplicationController associated to same version that the DeploymentConfig
 					//  and then checks every 5 secs. with it that the number of replicas ready 
 					//  matches the number of replicas in the specification)
 					def dc = openshift.selector("dc", "tasks").object()
@@ -171,6 +171,49 @@ podTemplate(
         //      Set Image, Set VERSION
         //      Deploy into the other application
         //      Make sure the application is running and ready before proceeding
+		script {
+			openshift.withCluster() {
+				openshift.withProject("${prodProject}") {
+					// Determine which application is active
+					activeApp = openshift.selector("route", "tasks").object().spec.to.name
+					if (activeApp == "tasks-green") {
+						destApp = "tasks-blue"
+					}
+					// (Where is the else ????)
+					echo "Active Application:      " + activeApp
+					echo "Destination Application: " + destApp
+
+					// Set Image, Set VERSION -> Update the image for the other application
+					// Update the Image (reference) on the Production Deployment Config DC
+					// (so ... 'dc/tasks' = dc for development and 'dc/tasks-green' and 'dc/tasks-blue' are for production)
+					// (note: in the dev DC image change above it uses openshift.set(...) instedad of changing the property and using apply).
+					def dc = openshift.selector("dc/${destApp}").object()
+					dc.spec.template.spec.containers[0].image="docker-registry.default.svc:5000/${devProject}/tasks:${prodTag}"
+					openshift.apply(dc)
+
+					// (Updates the config map for the green or blue destination application, the same that with development
+					// so the configuration files that the binary build didn't embed get correctly placed)
+					// Update Config Map in change config files changed in the source
+					openshift.selector("configmap", "${destApp}-config").delete()
+					def configmap = openshift.create("configmap", "${destApp}-config", "--from-file=./configuration/application-users.properties", "--from-file=./configuration/application-roles.properties" )
+
+					// Deploy into the 'other'/inactive application
+					openshift.selector("dc", "${destApp}").rollout().latest();
+
+					//      Make sure the application is running and ready before proceeding
+					// Wait for destination application to be deployed
+					// checking the ReplicationController status vs. spec
+					def dc_prod = openshift.selector("dc", "${destApp}").object()
+					def dc_version = dc_prod.status.latestVersion
+					def rc_prod = openshift.selector("rc", "${destApp}-${dc_version}").object()
+					echo "Waiting for ${destApp} to be ready"
+					while (rc_prod.spec.replicas != rc_prod.status.readyReplicas) {
+						sleep 5
+						rc_prod = openshift.selector("rc", "${destApp}-${dc_version}").object()
+					}
+				}
+			}
+		}
       }
 
       stage('Switch over to new Version') {
