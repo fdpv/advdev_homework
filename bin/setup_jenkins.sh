@@ -44,11 +44,11 @@ items:
       jenkinsPipelineStrategy:
         env:
         - name: "GUID"
-          value: ${GUID}
+          value: "${GUID}"
         - name: "REPO"
-          value: ${REPO}
+          value: "${REPO}"
         - name: "CLUSTER"
-          value: ${CLUSTER}
+          value: "${CLUSTER}"
         jenkinsfilePath: Jenkinsfile
 kind: List
 metadata: []" | oc create -f - -n ${GUID}-jenkins
