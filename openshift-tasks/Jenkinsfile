@@ -99,7 +99,44 @@ podTemplate(
         // TBD: Deploy to development Project
         //      Set Image, Set VERSION
         //      Make sure the application is running and ready before proceeding
-      }
+
+		script {
+			// Update the Image (reference ?) on the Development Deployment Config (dc) for tasks (dc/tasks)
+			openshift.withCluster() {
+				openshift.withProject("${devProject}") {
+					// Set Image and version in the DC
+					// OpenShift 3
+					openshift.set("image", "dc/tasks", "tasks=docker-registry.default.svc:5000/${devProject}/tasks:${devTag}")
+
+					// Update the Config Map (CM...named 'tasks-config') which contains the users for the Tasks application
+					// (just in case the properties files changed in the latest commit)
+					// (i.e. the files are application-users.properties and application-roles.properties)
+					// (note: in fact there is no 'update', so the code deletes and then creates the CM).
+					openshift.selector('configmap', 'tasks-config').delete()
+					def configmap = openshift.create('configmap', 'tasks-config', '--from-file=./configuration/application-users.properties', '--from-file=./configuration/application-roles.properties' )
+
+					// Deploy the development application.
+					openshift.selector("dc", "tasks").rollout().latest();
+
+					// Wait for application to be deployed
+					// (to to so, it gets the ReplicaController associated to same version that the DeploymentConfig
+					//  and then checks every 5 secs. with it that the number of replicas ready 
+					//  matches the number of replicas in the specification)
+					def dc = openshift.selector("dc", "tasks").object()
+					def dc_version = dc.status.latestVersion
+					def rc = openshift.selector("rc", "tasks-${dc_version}").object()
+
+					echo "Waiting for ReplicationController tasks-${dc_version} to be ready"
+					while (rc.spec.replicas != rc.status.readyReplicas) {
+						sleep 5
+						rc = openshift.selector("rc", "tasks-${dc_version}").object()
+					}
+
+				}
+			}
+		}
+
+      } // end of stage 'Deploy to Dev'
 
       // Copy Image to Nexus container registry
       stage('Copy Image to Nexus container registry') {
