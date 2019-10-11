@@ -119,6 +119,9 @@ podTemplate(
 					openshift.selector('configmap', 'tasks-config').delete()
 					def configmap = openshift.create('configmap', 'tasks-config', '--from-file=./configuration/application-users.properties', '--from-file=./configuration/application-roles.properties' )
 
+					// Set the environment variable VERSION on the tasks deployment config in the test project to '${devTag} (tasks-dev)'.
+					openshift.set("env", "dc/tasks", "VERSION='${devTag} (tasks-dev)'")
+
 					// Deploy the development application.
 					openshift.selector("dc", "tasks").rollout().latest();
 
@@ -197,6 +200,9 @@ podTemplate(
 					openshift.selector("configmap", "${destApp}-config").delete()
 					def configmap = openshift.create("configmap", "${destApp}-config", "--from-file=./configuration/application-users.properties", "--from-file=./configuration/application-roles.properties" )
 
+					// Set the environment variable VERSION on the destination blue or green tasks deployment config in the production project to '${prodTag} (tasks-COLOR)'
+					openshift.set("env", "dc/${destApp}", "VERSION='${prodTag} (${destApp})'")
+
 					// Deploy into the 'other'/inactive application
 					openshift.selector("dc", "${destApp}").rollout().latest();
 
@@ -219,6 +225,16 @@ podTemplate(
       stage('Switch over to new Version') {
         echo "Switching Production application to ${destApp}."
         // TBD: Execute switch
+		script {
+			openshift.withCluster() {
+				openshift.withProject("${prodProject}") {
+					// Get the production route object for "tasks" and change the destination to the new one
+					def route = openshift.selector("route/tasks").object()
+					route.spec.to.name="${destApp}"
+					openshift.apply(route)
+				}
+			}
+		}
       }
     }
   }
