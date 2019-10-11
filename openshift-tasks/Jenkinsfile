@@ -36,6 +36,10 @@ podTemplate(
       def devTag  = "${version}" + "-" + currentBuild.number	    // Example: def devTag  = "0.0-0"
       // Set the tag for the production image: version
       def prodTag = "${version}"  		                            // Example: def devTag  = "0.0"
+	  
+      def prefix = "${GUID}"
+      def devProject = "${prefix}-tasks-dev"
+      def prodProject = "${prefix}-tasks-prod"
 
       // Using Maven build the war file
       // Do not run tests in this step
@@ -141,10 +145,20 @@ podTemplate(
       // Copy Image to Nexus container registry
       stage('Copy Image to Nexus container registry') {
         echo "Copy image to Nexus container registry"
-
+		script {
         // TBD: Copy image to Nexus container registry
+			// OpenShift 3
+			// (copy the development image from the integrated OpenShift Container Registry to the Nexus container registry)
+			// (skope must be available when using the custom maven-appdev slave builder image)
+			sh "skopeo copy --src-tls-verify=false --dest-tls-verify=false --src-creds openshift:\$(oc whoami -t) --dest-creds admin:redhat docker://docker-registry.default.svc.cluster.local:5000/${devProject}/tasks:${devTag} docker://nexus3-registry.gpte-hw-cicd.svc.cluster.local:5000/tasks:${devTag}"
 
         // TBD: Tag the built image with the production tag.
+			openshift.withCluster() {
+				openshift.withProject("${prodProject}") {
+					openshift.tag("${devProject}/tasks:${devTag}", "${devProject}/tasks:${prodTag}")
+				}
+			}
+		}
       }
 
       // Blue/Green Deployment into Production
